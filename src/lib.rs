@@ -181,11 +181,14 @@ fn negamax_wrapper(game:&mut Game, depth:u8)->i8{
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    use std::time::Instant;
+    use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
     let path = "test_cases/Test_L3_R1";
     let (test_moves, test_evals) = read_test_file(path);
 
-    for i in 0..1000{
+    let start = Instant::now();
+    for i in tqdm(0..1000){
         let mut game = Game::new();
         setup_game(&mut game, &test_moves[i]);
         let eval = negamax_wrapper(&mut game, 14);
@@ -194,6 +197,8 @@ fn main() {
             panic!("test {i} failed!");
         }
     }
+    let time_taken = start.elapsed();
+    println!("Time Taken: {:#?}", time_taken);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
