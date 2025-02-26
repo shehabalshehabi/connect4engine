@@ -181,15 +181,29 @@ fn negamax_wrapper(game:&mut Game, depth:u8)->i8{
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use std::{fs::File, io::{BufRead, BufReader}};
 
     let path = "test_cases/Test_L3_R1";
-    println!("{}", path);
-    println!();
-    println!();
+    let (test_moves, test_evals) = read_test_file(path);
+
+    for i in 0..1000{
+        let mut game = Game::new();
+        setup_game(&mut game, &test_moves[i]);
+        let eval = negamax_wrapper(&mut game, 14);
+        //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
+        if eval != test_evals[i]{
+            panic!("test {i} failed!");
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn read_test_file(filename: &str)->(Vec<Vec<usize>>,Vec<i8>) {
+    use std::{fs::File, io::{BufRead, BufReader}};
+
     let mut test_moves : Vec<Vec<usize>> = Vec::new();
     let mut test_evals : Vec<i8> = Vec::new();
-    let file = File::open(path).expect("Couldn't find file");
+
+    let file = File::open(filename).expect("Couldn't find file");
     let file = BufReader::new(file);
     for line in file.lines(){
         let line = line.expect("couldn't read line");
@@ -205,43 +219,16 @@ fn main() {
             }
         }
     }
-    
-    //println!("{:#?} {}", test_moves[0], test_evals[0]);
+    (test_moves, test_evals)
+}
 
-    for i in 0..1000{
-        let mut game = Game::new();
-        for col_num in &test_moves[i]{
-            if !game.make_move(*col_num){
-                println!("{:?}", &test_moves[i]);
-                println!("game_status: {:#?}, moves_played{}", col_num, game.moves_made);
-                panic!("THIS SHOULD NOT BE HAPPENING");
-            }
+#[cfg(not(target_arch = "wasm32"))]
+fn setup_game(game:&mut Game, moves: &Vec<usize>){
+    for col_num in moves{
+        if !game.make_move(*col_num){
+            println!("{:?}", moves);
+            println!("game_status: {:#?}, moves_played{}", col_num, game.moves_made);
+            panic!("unable to make moves in test case!");
         }
-        
-        //game.make_move(3);
-        //game.make_move(3);
-        
-        //game.print();
-        /*
-        println!("{}", game.make_move(1));
-        println!("{}", game.make_move(1));
-        println!("{}", game.make_move(3));
-        game.print();*/
-        //println!("{:#?} {}", game.game_status, game.moves_made);
-        
-        let eval = negamax_wrapper(&mut game, 14);
-        println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
-        if eval != test_evals[i]{
-            //panic!();
-        }
-
-        /*
-        for i in 0..7{
-            if game.make_move(i){
-                println!("move {}, eval {}", i, negamax(&mut game, 10));
-                game.unmake_move(i);
-            }
-        }*/
     }
-
 }
