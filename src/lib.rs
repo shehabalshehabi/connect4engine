@@ -1,4 +1,4 @@
-use std::{cmp::max, fmt};
+use std::{cmp::max, fmt, i8};
 
 use wasm_bindgen::prelude::*;
 
@@ -148,31 +148,42 @@ impl Game {
     }
 }
 
-fn negamax(game:&mut Game, depth:u8)->i8{
+fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8)->i8{
     match &game.game_status {
         GameStatus::InProgress => (),
         GameStatus::Draw => return 0,
         _ => return -22 + (game.moves_made+1)/2, // negamax can only be called in a decided game by lost player
     }
+
+    let mut alpha = alpha;
+
     if depth == 0 {
         return 0
     } else {
         let mut value = i8::MIN;
         for col_num in 0..COLS {
             if game.make_move(col_num){
-                value = max(value, -negamax(game, depth-1));
+                value = max(value, -negamax(game, depth-1, -beta, -alpha));
                 game.unmake_move(col_num);
+                alpha = max(alpha, value);
+                if alpha > beta {
+                    break;
+                }
             }
         }
         return value
     }
 }
 
+fn negamax_wrapper(game:&mut Game, depth:u8)->i8{
+    negamax(game, depth, -i8::MAX, i8::MAX) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use std::{collections::btree_map::Range, fs::File, io::{BufRead, BufReader}};
+    use std::{fs::File, io::{BufRead, BufReader}};
 
-    let path = "Test_L3_R1";
+    let path = "test_cases/Test_L3_R1";
     println!("{}", path);
     println!();
     println!();
@@ -218,7 +229,7 @@ fn main() {
         game.print();*/
         //println!("{:#?} {}", game.game_status, game.moves_made);
         
-        let eval = negamax(&mut game, 14);
+        let eval = negamax_wrapper(&mut game, 14);
         println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
         if eval != test_evals[i]{
             //panic!();
