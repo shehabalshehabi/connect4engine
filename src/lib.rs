@@ -37,11 +37,12 @@ impl fmt::Display for Slot {
     }
 }
 
-const ROWS: usize = 6;
-const COLS: usize = 7;
+const ROWS: u8 = 6;
+const COLS: u8 = 7;
 
 struct Game {
-    board: [[Slot; ROWS]; COLS],
+    board_set: u64,
+    board_p1: u64,
     player_one_turn : bool,
     game_status: GameStatus,
     moves_made: i8,
@@ -50,33 +51,63 @@ struct Game {
 impl Game {
     fn new() -> Self {
         Self {
-            board: [[Slot::Empty; ROWS]; COLS],
+            board_set: 0,
+            board_p1: 0,
             player_one_turn: true,
             game_status: GameStatus::InProgress,
             moves_made: 0
         }
     }
 
+    fn set_slot(&mut self, column_number: u8, row_number: u8, value: Slot){
+        // This function doesn't check that a slot hasn't already been assigned to the opponent.
+        // It trusts its callers to check before invoking it
+        let index = (column_number << 3) + row_number;
+        let mask = 1 << index;
+        if value == Slot::Empty{
+            self.board_set &= !mask;
+            return;
+        }
+        self.board_set |= mask;
+        if  value == Slot::Player1 {
+            self.board_p1 |= mask;
+        } else {
+            self.board_p1 &= !mask;
+        }
+    }
+    
+    fn get_slot(&self, column_number: u8, row_number: u8)->Slot{
+        let index = (column_number << 3) + row_number;
+        let mask = 1 << index;
+        if (self.board_set & mask== 0){
+            Slot::Empty
+        } else if (self.board_p1 & mask == 0){
+            Slot::Player1
+        } else {
+            Slot::Player2
+        }
+    }
+
     fn print(&self){
         for y in (0..ROWS).rev() {
             for x in 0..COLS{
-                print!("{}", self.board[x][y]);
+                print!("{}", self.get_slot(x, y));
             }
             println!();
         }
     }
 
-    fn make_move(&mut self, column_number:usize) -> bool{
+    fn make_move(&mut self, column_number:u8) -> bool{
         if !(self.game_status == GameStatus::InProgress) {
             return false
         }
         let mut move_made = false;
         for i in 0..ROWS {
-            if self.board[column_number][i] == Slot::Empty {
+            if self.get_slot(column_number, i) == Slot::Empty {
                 if self.player_one_turn {
-                    self.board[column_number][i] = Slot::Player1
+                    self.set_slot(column_number, i, Slot::Player1)
                 } else {
-                    self.board[column_number][i] = Slot::Player2
+                    self.set_slot(column_number, i, Slot::Player2)
                 }
                 self.moves_made += 1;
                 if self.check_win(column_number, i){
@@ -95,12 +126,12 @@ impl Game {
         false
     }
 
-    fn unmake_move(&mut self, column_number:usize) -> bool{
+    fn unmake_move(&mut self, column_number:u8) -> bool{
         // We do not check if this was the last move and leave it to the caller to ensure that it was.
         // We do not eveb check if it was possible for the player whose turn it was last played the move.
         for i in (0..ROWS).rev() {
-            if self.board[column_number][i] != Slot::Empty {
-                self.board[column_number][i] = Slot::Empty;
+            if self.get_slot(column_number, i) != Slot::Empty {
+                self.set_slot(column_number, i, Slot::Empty);
                 self.moves_made -= 1;
                 self.game_status = GameStatus::InProgress;
                 self.player_one_turn = !self.player_one_turn;
@@ -110,39 +141,27 @@ impl Game {
         false
     }
     
-    fn check_win(&mut self, column_number:usize, row_number:usize) -> bool{
-        let player = self.board[column_number][row_number];
-        if row_number >= 3 {
-            for y in row_number-3..row_number+1 {
-                if self.board[column_number][y]!= player {
-                    break;
-                }
-                if y == row_number {
-                    return true;
-                }
-            }
-        }
-        let mut run_length;
-        for y_delta_mult in -1..2{
-            run_length = 0;
-            for delta in -3..4{
-                if let (Some(x), Some(y)) = (
-                    column_number.checked_add_signed(delta),
-                    row_number.checked_add_signed(y_delta_mult * delta)
-                ) {
-                    if x<COLS && y<ROWS && self.board[x][y] == player {
-                        run_length += 1;
+    fn check_win(&mut self, column_number:u8, row_number:u8) -> bool{
+        let board = if self.moves_made % 2 == 1 {
+            self.board_set & self.board_p1
+        } else {
+            self.board_set & !self.board_p1
+        };
 
-                        if run_length >= 4 {
-                            return  true;
-                        }
-                    } else {
-                        run_length = 0
-                    }
-                } else {
-                    run_length = 0
-                }
-            }
+        if (board & (board << 1) & (board << 2) & (board << 3)) != 0 {
+            return  true;
+        }
+
+        if (board & (board << 8) & (board << 16) & (board << 24)) != 0 {
+            return  true;
+        }
+
+        if (board & (board << 9) & (board << 18) & (board << 27)) != 0 {
+            return  true;
+        }
+
+        if (board & (board << 7) & (board << 14) & (board << 21)) != 0 {
+            return  true;
         }
         false
     }
@@ -202,10 +221,10 @@ fn main() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_test_file(filename: &str)->(Vec<Vec<usize>>,Vec<i8>) {
+fn read_test_file(filename: &str)->(Vec<Vec<u8>>,Vec<i8>) {
     use std::{fs::File, io::{BufRead, BufReader}};
 
-    let mut test_moves : Vec<Vec<usize>> = Vec::new();
+    let mut test_moves : Vec<Vec<u8>> = Vec::new();
     let mut test_evals : Vec<i8> = Vec::new();
 
     let file = File::open(filename).expect("Couldn't find file");
@@ -213,8 +232,8 @@ fn read_test_file(filename: &str)->(Vec<Vec<usize>>,Vec<i8>) {
     for line in file.lines(){
         let line = line.expect("couldn't read line");
         if let Some((moves, eval)) = line.split_once(" "){
-            let moves : Vec<usize> = moves.chars()
-                .filter_map(|c| c.to_digit(10).map(|x| (x-1) as usize))
+            let moves : Vec<u8> = moves.chars()
+                .filter_map(|c| c.to_digit(10).map(|x| (x-1) as u8))
                 .collect();
             if let Ok(eval) = eval.parse::<i8>() {
                 test_moves.push(moves);
@@ -228,7 +247,7 @@ fn read_test_file(filename: &str)->(Vec<Vec<usize>>,Vec<i8>) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn setup_game(game:&mut Game, moves: &Vec<usize>){
+fn setup_game(game:&mut Game, moves: &Vec<u8>){
     for col_num in moves{
         if !game.make_move(*col_num){
             println!("{:?}", moves);
