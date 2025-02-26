@@ -1,0 +1,15 @@
+[package]
+name = "connect4engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "connect4engine"
+crate-type = ["cdylib"]
+
+[[bin]]
+name = "connect4enginebin"
+path = "src/lib.rs"
+
+[dependencies]
+wasm-bindgen = "0.2"
