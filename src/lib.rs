@@ -39,6 +39,7 @@ impl fmt::Display for Slot {
 
 const ROWS: u8 = 6;
 const COLS: u8 = 7;
+const MOVE_ORDER: [u8; 7] = [3,4,2,5,1,6,0];
 
 struct Game {
     board_set: u64,
@@ -180,7 +181,7 @@ fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8)->i8{
         return 0
     } else {
         let mut value = i8::MIN;
-        for col_num in 0..COLS {
+        for col_num in MOVE_ORDER {
             if game.make_move(col_num){
                 value = max(value, -negamax(game, depth-1, -beta, -alpha));
                 game.unmake_move(col_num);
