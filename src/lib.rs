@@ -1,5 +1,5 @@
 use std::{cmp::max, fmt, i8};
-
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -166,37 +166,111 @@ impl Game {
         }
         false
     }
+
+    fn get_hash(&self)->u128{
+        let p1bits = self.board_set & self.board_p1;
+        let p2bits = self.board_set & !self.board_p1;
+        let position: u128 = ((p1bits as u128) << 64) | (p2bits as u128);
+        //let position: u128 = ((self.board_set as u128) << 64) | (self.board_p1 as u128);
+        position
+    }
 }
 
-fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8)->i8{
+fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8, transposition_table: &mut HashMap<u128,Eval>)->i8{
+    if depth == 0 {
+        return 0
+    }
     match &game.game_status {
         GameStatus::InProgress => (),
         GameStatus::Draw => return 0,
         _ => return -22 + (game.moves_made+1)/2, // negamax can only be called in a decided game by lost player
     }
-
-    let mut alpha = alpha;
-
-    if depth == 0 {
-        return 0
-    } else {
-        let mut value = i8::MIN;
-        for col_num in MOVE_ORDER {
-            if game.make_move(col_num){
-                value = max(value, -negamax(game, depth-1, -beta, -alpha));
-                game.unmake_move(col_num);
-                alpha = max(alpha, value);
-                if alpha > beta {
-                    break;
+    
+    let mut new_alpha = alpha;
+    let pos = game.get_hash();
+    
+    
+    if let Some(eval) = transposition_table.get(&pos){
+        match eval.value_type {
+            ValueType::Exact => {
+                return eval.value;
+            }
+            ValueType::LowerBound => {
+                if eval.value >= beta {
+                    return eval.value;
+                }
+            }
+            ValueType::UpperBound => {
+                if eval.value <= alpha {
+                    return eval.value;
                 }
             }
         }
-        return value
+    }
+
+    let mut value = i8::MIN;
+    for col_num in MOVE_ORDER {
+        if game.make_move(col_num){
+            value = max(value, -negamax(game, depth-1, -beta, -alpha, transposition_table));
+            game.unmake_move(col_num);
+            new_alpha = max(new_alpha, value);
+            if new_alpha > beta {
+                break;
+            }
+        }
+    }
+    let value_type = if value > beta {
+        ValueType::LowerBound
+    } else if value < alpha {
+        ValueType::UpperBound
+    } else {
+        ValueType::Exact
+    };
+    transposition_table.insert(pos, Eval {
+        value,
+        value_type
+    });
+    value
+}
+
+struct Eval{
+    value: i8,
+    value_type: ValueType,
+}
+
+#[derive(PartialEq, Eq)]
+enum ValueType {
+    Exact,
+    UpperBound,
+    LowerBound,
+}
+
+struct TranspositionTableEntry{
+    key: u32,
+    eval: Eval,
+}
+
+struct TranspositionTable{
+    entries : Vec<TranspositionTableEntry>,
+}
+
+impl TranspositionTable {
+    fn new(n: usize) -> Self {
+        Self {
+            entries: Vec::with_capacity(n)
+        }
+    }
+    fn insert(key: u128, value: Eval){
+
+    }
+    fn get(key: u128){
+
     }
 }
 
 fn negamax_wrapper(game:&mut Game, depth:u8)->i8{
-    negamax(game, depth, -i8::MAX, i8::MAX) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
+    let mut transposition_table : HashMap<u128, Eval> = HashMap::new();
+    negamax(game, depth, -i8::MAX, i8::MAX, &mut transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -211,9 +285,10 @@ fn main() {
     for i in tqdm(0..1000){
         let mut game = Game::new();
         setup_game(&mut game, &test_moves[i]);
-        let eval = negamax_wrapper(&mut game, 14);
+        let eval = negamax_wrapper(&mut game, 28);
         //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
         if eval != test_evals[i]{
+            println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
             panic!("test {i} failed!");
         }
     }
