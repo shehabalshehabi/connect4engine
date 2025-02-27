@@ -201,16 +201,22 @@ impl Game {
     }
 }
 
-fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable)->i8{
-    if depth == 0 {
-        return 0
+fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable)->i8{
+    let max_possible = (43 - game.moves_made)/2;
+    if max_possible < alpha {
+        return alpha
     }
+    let min_possible = -(42 - game.moves_made)/2;
+    if min_possible > beta {
+        return  beta;
+    }
+
     match &game.game_status {
         GameStatus::InProgress => (),
         GameStatus::Draw => return 0,
         _ => return -22 + (game.moves_made+1)/2, // negamax can only be called in a decided game by lost player
     }
-    
+
     let mut new_alpha = alpha;
     let pos = game.get_hash();
     
@@ -236,7 +242,7 @@ fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8, transposition_table: &
     let mut value = i8::MIN;
     for col_num in MOVE_ORDER {
         if game.make_move(col_num){
-            value = max(value, -negamax(game, depth-1, -beta, -alpha, transposition_table));
+            value = max(value, -negamax(game, -beta, -alpha, transposition_table));
             game.unmake_move(col_num);
             new_alpha = max(new_alpha, value);
             if new_alpha > beta {
@@ -308,7 +314,17 @@ impl TranspositionTable {
 }
 
 fn negamax_wrapper(game:&mut Game, depth:u8, transposition_table: &mut TranspositionTable)->i8{
-    negamax(game, depth, -i8::MAX, i8::MAX, transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
+    negamax(game, -i8::MAX, i8::MAX, transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
+}
+
+fn search(game: &mut Game, transposition_table: &mut TranspositionTable){
+    let mut max = (43 - game.moves_made)/2;
+    let mut min = (42 - game.moves_made)/2;
+
+    while (max > min){
+        let med = (min + min) / 2;
+        let value = negamax(game, med, med+1, transposition_table);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -325,9 +341,10 @@ fn main() {
     for i in tqdm(0..1000){
         let mut game = Game::new();
         setup_game(&mut game, &test_moves[i]);
-        let eval = negamax_wrapper(&mut game, 28, &mut transposition_table);
+        //let eval = negamax_wrapper(&mut game, 14, &mut transposition_table);
+        let eval = negamax(&mut game, -1, 1, &mut transposition_table);
         //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
-        if eval != test_evals[i]{
+        if eval.signum() != test_evals[i].signum(){
             println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
             panic!("test {i} failed!");
         }
