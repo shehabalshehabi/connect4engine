@@ -1,6 +1,10 @@
+use std::collections::btree_map::Keys;
 use std::{cmp::max, fmt, i8};
 use std::collections::HashMap;
+use rand::{Rng, SeedableRng};
 use wasm_bindgen::prelude::*;
+use once_cell::sync::Lazy;
+use rand::rngs::StdRng;
 
 #[wasm_bindgen]
 extern "C" {
@@ -41,12 +45,26 @@ const ROWS: u8 = 6;
 const COLS: u8 = 7;
 const MOVE_ORDER: [u8; 7] = [3,4,2,5,1,6,0];
 
+static ZOBRIST_TABLE: Lazy<[[[u64;2]; ROWS as usize]; COLS as usize]> = Lazy::new(|| {
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut table = [[[0;2]; ROWS as usize]; COLS as usize];
+    for x in 0..COLS {
+        for y in 0..ROWS {
+            for p in 0..2{
+                table[x as usize][y as usize][p] = rng.random();
+            }
+        }
+    }
+    table
+});
+
 struct Game {
     board_set: u64,
     board_p1: u64,
     player_one_turn : bool,
     game_status: GameStatus,
     moves_made: i8,
+    position_hash: u64,
 }
 
 impl Game {
@@ -56,7 +74,8 @@ impl Game {
             board_p1: 0,
             player_one_turn: true,
             game_status: GameStatus::InProgress,
-            moves_made: 0
+            moves_made: 0,
+            position_hash: 0,
         }
     }
 
@@ -120,6 +139,11 @@ impl Game {
                 } else if self.moves_made == 42 {
                     self.game_status = GameStatus::Draw
                 }
+                if self.player_one_turn {
+                    self.position_hash ^= ZOBRIST_TABLE[column_number as usize][i as usize][0];
+                } else {
+                    self.position_hash ^= ZOBRIST_TABLE[column_number as usize][i as usize][1];
+                }
                 self.player_one_turn = !self.player_one_turn;
                 return true;
             }
@@ -136,6 +160,11 @@ impl Game {
                 self.moves_made -= 1;
                 self.game_status = GameStatus::InProgress;
                 self.player_one_turn = !self.player_one_turn;
+                if self.player_one_turn {
+                    self.position_hash ^= ZOBRIST_TABLE[column_number as usize][i as usize][0];
+                } else {
+                    self.position_hash ^= ZOBRIST_TABLE[column_number as usize][i as usize][1];
+                }
                 return true
             }
         }
@@ -167,16 +196,12 @@ impl Game {
         false
     }
 
-    fn get_hash(&self)->u128{
-        let p1bits = self.board_set & self.board_p1;
-        let p2bits = self.board_set & !self.board_p1;
-        let position: u128 = ((p1bits as u128) << 64) | (p2bits as u128);
-        //let position: u128 = ((self.board_set as u128) << 64) | (self.board_p1 as u128);
-        position
+    fn get_hash(&self)->u64{
+        self.position_hash
     }
 }
 
-fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8, transposition_table: &mut HashMap<u128,Eval>)->i8{
+fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable)->i8{
     if depth == 0 {
         return 0
     }
@@ -190,7 +215,7 @@ fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8, transposition_table: &
     let pos = game.get_hash();
     
     
-    if let Some(eval) = transposition_table.get(&pos){
+    if let Some(eval) = transposition_table.get(pos){
         match eval.value_type {
             ValueType::Exact => {
                 return eval.value;
@@ -233,44 +258,57 @@ fn negamax(game:&mut Game, depth:u8, alpha: i8, beta: i8, transposition_table: &
     value
 }
 
+#[derive(Clone)]
 struct Eval{
     value: i8,
     value_type: ValueType,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 enum ValueType {
     Exact,
     UpperBound,
     LowerBound,
 }
 
+#[derive(Clone)]
 struct TranspositionTableEntry{
-    key: u32,
+    key: u64,
     eval: Eval,
 }
 
 struct TranspositionTable{
-    entries : Vec<TranspositionTableEntry>,
+    address_mask : u64,
+    entries : Box<[Option<TranspositionTableEntry>]>,
 }
 
 impl TranspositionTable {
     fn new(n: usize) -> Self {
         Self {
-            entries: Vec::with_capacity(n)
+            address_mask: (1<<n)-1,
+            entries: vec![None; 1<<n].into_boxed_slice()
         }
     }
-    fn insert(key: u128, value: Eval){
-
+    fn insert(&mut self, key: u64, value: Eval){
+        let position = key & self.address_mask;
+        self.entries[position as usize] = Some(TranspositionTableEntry{
+            key,
+            eval: value,
+        });
     }
-    fn get(key: u128){
-
+    fn get(&mut self, key: u64)->Option<&Eval>{
+        let position = key & self.address_mask;
+        if let Some(entry) = &self.entries[position as usize]{
+            if entry.key == key {
+                return Some(&entry.eval)
+            }
+        }
+        None
     }
 }
 
-fn negamax_wrapper(game:&mut Game, depth:u8)->i8{
-    let mut transposition_table : HashMap<u128, Eval> = HashMap::new();
-    negamax(game, depth, -i8::MAX, i8::MAX, &mut transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
+fn negamax_wrapper(game:&mut Game, depth:u8, transposition_table: &mut TranspositionTable)->i8{
+    negamax(game, depth, -i8::MAX, i8::MAX, transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -280,12 +318,14 @@ fn main() {
 
     let path = "test_cases/Test_L3_R1";
     let (test_moves, test_evals) = read_test_file(path);
+    let mut transposition_table = TranspositionTable::new(18);
+    println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
 
     let start = Instant::now();
     for i in tqdm(0..1000){
         let mut game = Game::new();
         setup_game(&mut game, &test_moves[i]);
-        let eval = negamax_wrapper(&mut game, 28);
+        let eval = negamax_wrapper(&mut game, 28, &mut transposition_table);
         //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
         if eval != test_evals[i]{
             println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
