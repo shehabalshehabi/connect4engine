@@ -1,5 +1,5 @@
 use std::collections::btree_map::Keys;
-use std::{cmp::max, fmt, i8};
+use std::{cmp::{max, min}, fmt, i8};
 use std::collections::HashMap;
 use rand::{Rng, SeedableRng};
 use wasm_bindgen::prelude::*;
@@ -208,7 +208,7 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
     }
     let min_possible = -(42 - game.moves_made)/2;
     if min_possible > beta {
-        return  beta;
+        return beta;
     }
 
     match &game.game_status {
@@ -250,13 +250,12 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
             }
         }
     }
-    let value_type = if value > beta {
+    // We never get exact values from a null windo search and so don't check to speed things up.
+    let value_type = if value >= beta {
         ValueType::LowerBound
-    } else if value < alpha {
-        ValueType::UpperBound
     } else {
-        ValueType::Exact
-    };
+        ValueType::UpperBound
+    }; 
     transposition_table.insert(pos, Eval {
         value,
         value_type
@@ -313,18 +312,38 @@ impl TranspositionTable {
     }
 }
 
-fn negamax_wrapper(game:&mut Game, depth:u8, transposition_table: &mut TranspositionTable)->i8{
+fn negamax_wrapper(game:&mut Game, transposition_table: &mut TranspositionTable)->i8{
     negamax(game, -i8::MAX, i8::MAX, transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
 }
 
-fn search(game: &mut Game, transposition_table: &mut TranspositionTable){
-    let mut max = (43 - game.moves_made)/2;
-    let mut min = (42 - game.moves_made)/2;
+fn search(game: &mut Game, transposition_table: &mut TranspositionTable)->i8{
+    let mut maximum_possible = (42 - game.moves_made)/2;
+    let mut minimum_possible = -(43 - game.moves_made)/2;
 
-    while (max > min){
-        let med = (min + min) / 2;
-        let value = negamax(game, med, med+1, transposition_table);
+    /* Iterative deepening algorithm used by Pascal Pons
+
+    We prefer searching higher and lower than the midpoint so we get more pruning of the
+    search tree. Our window also defines the depth of our search as we score better for
+    earlier wins.
+    */
+
+    while (minimum_possible < maximum_possible){
+        let mut window = minimum_possible + (maximum_possible-minimum_possible) / 2;
+        if (window >= 0) & (maximum_possible/2 > window){
+            window = max(window, maximum_possible/2);
+        } else if (window <= 0) & (minimum_possible/2 < window){
+            window = min(window, minimum_possible/2);
+        }
+        println!("{minimum_possible}, {maximum_possible}, {window}");
+        let result = negamax(game, window, window+1, transposition_table);
+        println!("{minimum_possible}, {maximum_possible}, {window}, {result}");
+        if result <= window {
+            maximum_possible = window
+        } else {
+            minimum_possible = window + 1
+        }
     }
+    minimum_possible
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -332,7 +351,7 @@ fn main() {
     use std::time::Instant;
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
-    let path = "test_cases/Test_L3_R1";
+    let path = "test_cases/Test_L1_R1";
     let (test_moves, test_evals) = read_test_file(path);
     let mut transposition_table = TranspositionTable::new(18);
     println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
@@ -343,8 +362,9 @@ fn main() {
         setup_game(&mut game, &test_moves[i]);
         //let eval = negamax_wrapper(&mut game, 14, &mut transposition_table);
         let eval = negamax(&mut game, -1, 1, &mut transposition_table);
+        //let eval = search(&mut game, &mut transposition_table);
         //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
-        if eval.signum() != test_evals[i].signum(){
+        if eval != test_evals[i]{
             println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
             panic!("test {i} failed!");
         }
