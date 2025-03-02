@@ -1,3 +1,4 @@
+use core::borrow;
 use std::collections::btree_map::Keys;
 use std::{cmp::{max, min}, fmt, i8};
 use std::collections::HashMap;
@@ -44,6 +45,7 @@ impl fmt::Display for Slot {
 const ROWS: u8 = 6;
 const COLS: u8 = 7;
 const MOVE_ORDER: [u8; 7] = [3,4,2,5,1,6,0];
+const COLUMN_MASK: u64 = 2_u64.pow(ROWS as u32)-1;
 
 static ZOBRIST_TABLE: Lazy<[[[u64;2]; ROWS as usize]; COLS as usize]> = Lazy::new(|| {
     let mut rng = StdRng::seed_from_u64(0);
@@ -57,6 +59,23 @@ static ZOBRIST_TABLE: Lazy<[[[u64;2]; ROWS as usize]; COLS as usize]> = Lazy::ne
     }
     table
 });
+
+#[inline(always)]
+fn check_board_for_win(board: u64)->bool{
+    if (board & (board << 1) & (board << 2) & (board << 3)) != 0 {
+        return  true;
+    }
+    if (board & (board << 8) & (board << 16) & (board << 24)) != 0 {
+        return  true;
+    }
+    if (board & (board << 9) & (board << 18) & (board << 27)) != 0 {
+        return  true;
+    }
+    if (board & (board << 7) & (board << 14) & (board << 21)) != 0 {
+        return  true;
+    }
+    false
+}
 
 struct Game {
     board_set: u64,
@@ -177,23 +196,30 @@ impl Game {
         } else {
             self.board_set & !self.board_p1
         };
+        
+        check_board_for_win(board)
+    }
 
-        if (board & (board << 1) & (board << 2) & (board << 3)) != 0 {
-            return  true;
-        }
+    fn get_winning_move(&self)->Option<u8>{
+        let board_player = if self.moves_made % 2 == 0 {
+            self.board_set & self.board_p1
+        } else {
+            self.board_set & !self.board_p1
+        };
 
-        if (board & (board << 8) & (board << 16) & (board << 24)) != 0 {
-            return  true;
+        let board_playable = (self.board_set << 1) & !(self.board_set);
+        
+        for i in 0..COLS{
+            let board = board_player | (board_playable & (COLUMN_MASK << 8 * i));
+            if check_board_for_win(board){
+                return Some(i);
+            }
         }
+        None
+    }
 
-        if (board & (board << 9) & (board << 18) & (board << 27)) != 0 {
-            return  true;
-        }
-
-        if (board & (board << 7) & (board << 14) & (board << 21)) != 0 {
-            return  true;
-        }
-        false
+    fn get_candidate_moves(&self)->Vec<u8>{
+        return vec![];
     }
 
     fn get_hash(&self)->u64{
@@ -215,6 +241,10 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
         GameStatus::InProgress => (),
         GameStatus::Draw => return 0,
         _ => return -22 + (game.moves_made+1)/2, // negamax can only be called in a decided game by lost player
+    }
+
+    if let Some(_move) = game.get_winning_move(){
+        return max_possible
     }
 
     let mut new_alpha = alpha;
@@ -334,9 +364,9 @@ fn search(game: &mut Game, transposition_table: &mut TranspositionTable)->i8{
         } else if (window <= 0) & (minimum_possible/2 < window){
             window = min(window, minimum_possible/2);
         }
-        println!("{minimum_possible}, {maximum_possible}, {window}");
+        //println!("{minimum_possible}, {maximum_possible}, {window}");
         let result = negamax(game, window, window+1, transposition_table);
-        println!("{minimum_possible}, {maximum_possible}, {window}, {result}");
+        //println!("{minimum_possible}, {maximum_possible}, {window}, {result}");
         if result <= window {
             maximum_possible = window
         } else {
@@ -351,7 +381,7 @@ fn main() {
     use std::time::Instant;
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
-    let path = "test_cases/Test_L1_R1";
+    let path = "test_cases/Test_L3_R1";
     let (test_moves, test_evals) = read_test_file(path);
     let mut transposition_table = TranspositionTable::new(18);
     println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
@@ -361,8 +391,8 @@ fn main() {
         let mut game = Game::new();
         setup_game(&mut game, &test_moves[i]);
         //let eval = negamax_wrapper(&mut game, 14, &mut transposition_table);
-        let eval = negamax(&mut game, -1, 1, &mut transposition_table);
-        //let eval = search(&mut game, &mut transposition_table);
+        //let eval = negamax(&mut game, -1, 1, &mut transposition_table);
+        let eval = search(&mut game, &mut transposition_table);
         //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
         if eval != test_evals[i]{
             println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
