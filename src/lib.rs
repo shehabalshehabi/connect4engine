@@ -46,6 +46,13 @@ const ROWS: u8 = 6;
 const COLS: u8 = 7;
 const MOVE_ORDER: [u8; 7] = [3,4,2,5,1,6,0];
 const COLUMN_MASK: u64 = 2_u64.pow(ROWS as u32)-1;
+const BOARD_MASK: Lazy<u64> = Lazy::new(|| {
+    let mut board_mask = COLUMN_MASK;
+    for i in 1..COLS {
+        board_mask = board_mask | (board_mask << 8 * i) 
+    }
+    board_mask
+});
 
 static ZOBRIST_TABLE: Lazy<[[[u64;2]; ROWS as usize]; COLS as usize]> = Lazy::new(|| {
     let mut rng = StdRng::seed_from_u64(0);
@@ -140,54 +147,73 @@ impl Game {
         if !(self.game_status == GameStatus::InProgress) {
             return false
         }
-        let mut move_made = false;
-        for i in 0..ROWS {
-            if self.get_slot(column_number, i) == Slot::Empty {
-                if self.player_one_turn {
-                    self.set_slot(column_number, i, Slot::Player1)
-                } else {
-                    self.set_slot(column_number, i, Slot::Player2)
-                }
-                self.moves_made += 1;
-                if self.check_win(column_number, i){
-                    if self.player_one_turn {
-                        self.game_status = GameStatus::Player1Win
-                    } else {
-                        self.game_status = GameStatus::Player2Win
-                    }
-                } else if self.moves_made == 42 {
-                    self.game_status = GameStatus::Draw
-                }
-                if self.player_one_turn {
-                    self.position_hash ^= ZOBRIST_TABLE[column_number as usize][i as usize][0];
-                } else {
-                    self.position_hash ^= ZOBRIST_TABLE[column_number as usize][i as usize][1];
-                }
-                self.player_one_turn = !self.player_one_turn;
-                return true;
-            }
+        // Check if column has been played at all - otherwise find slot using bitshift
+        let (slot, row_number) = if ((self.board_set >> (8 * column_number)) & 1) == 0 {
+            (1<<(8*column_number), 0)
+        } else {
+            let slot = ((self.board_set << 1) & (COLUMN_MASK << 8 * column_number) | (self.board_set)) - self.board_set;
+            //println!("slot 2: {slot}");
+            let row_number = match (slot >> 8 * column_number) {
+                2=>1,
+                4=>2,
+                8=>3,
+                16=>4,
+                32=>5,
+                _=>return false,
+            };
+            (slot, row_number)
+        };
+        self.board_set |= slot;
+        if self.player_one_turn {
+            self.board_p1 |= slot;
+        } else {
+            self.board_p1 &= !slot;
         }
-        false
+        if self.player_one_turn {
+            self.position_hash ^= ZOBRIST_TABLE[column_number as usize][row_number as usize][0];
+        } else {
+            self.position_hash ^= ZOBRIST_TABLE[column_number as usize][row_number as usize][1];
+        }
+        self.moves_made += 1;
+        if self.check_win(column_number, row_number){
+            if self.player_one_turn {
+                self.game_status = GameStatus::Player1Win
+            } else {
+                self.game_status = GameStatus::Player2Win
+            }
+        } else if self.moves_made == 42 {
+            self.game_status = GameStatus::Draw
+        }
+        self.player_one_turn = !self.player_one_turn;
+        true
     }
 
     fn unmake_move(&mut self, column_number:u8) -> bool{
         // We do not check if this was the last move and leave it to the caller to ensure that it was.
         // We do not eveb check if it was possible for the player whose turn it was last played the move.
-        for i in (0..ROWS).rev() {
-            if self.get_slot(column_number, i) != Slot::Empty {
-                self.set_slot(column_number, i, Slot::Empty);
-                self.moves_made -= 1;
-                self.game_status = GameStatus::InProgress;
-                self.player_one_turn = !self.player_one_turn;
-                if self.player_one_turn {
-                    self.position_hash ^= ZOBRIST_TABLE[column_number as usize][i as usize][0];
-                } else {
-                    self.position_hash ^= ZOBRIST_TABLE[column_number as usize][i as usize][1];
-                }
-                return true
+        let slot = (self.board_set & !(self.board_set >> 1)) & (COLUMN_MASK << 8 * column_number);
+        if slot == 0 {
+            false
+        } else {
+            self.board_set &= !slot;
+            self.moves_made -= 1;
+            self.game_status = GameStatus::InProgress;
+            let row_number = match (slot >> 8 * column_number){
+                1 => 0,
+                2 => 1,
+                4 => 2,
+                8 => 3,
+                16 => 4,
+                _ => 5,
+            };
+            self.player_one_turn = !self.player_one_turn;
+            if self.player_one_turn {
+                self.position_hash ^= ZOBRIST_TABLE[column_number as usize][row_number][0];
+            } else {
+                self.position_hash ^= ZOBRIST_TABLE[column_number as usize][row_number][1];
             }
+            true
         }
-        false
     }
     
     fn check_win(&mut self, column_number:u8, row_number:u8) -> bool{
@@ -219,6 +245,14 @@ impl Game {
     }
 
     fn get_candidate_moves(&self)->Vec<u8>{
+        // We check for winning moves separately. We get candidate moves by checking for places where we have three tokens in a row
+        // that could be extended to four followed by two in a row that can be extended to four
+        let board_player = if self.moves_made % 2 == 0 {
+            self.board_set & self.board_p1
+        } else {
+            self.board_set & !self.board_p1
+        };
+
         return vec![];
     }
 
