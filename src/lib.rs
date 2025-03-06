@@ -306,14 +306,39 @@ impl Game {
         };
         let board_playable= board_player | !self.board_set;
 
-        for i in 0..COLS{
-            if self.make_move(i).0{
-
-                //self.unmake_move(i);
+        // Loop through moves and evaluate their potential of being part of a winning sequence.
+        let mut col_scores: Vec<(u8, u32)> = Vec::new();
+        for col_number in 0..COLS{
+            if let (true, row_number) = self.make_move(col_number){
+                let index = col_number * 8 + row_number;
+                // We align the board to the masks
+                let (board_playable, board_player) = if (index >= WIN_MASK_OFFSET){
+                    let offset = index - WIN_MASK_OFFSET;
+                    (board_playable >> offset, board_player >> offset)
+                } else {
+                    let offset = WIN_MASK_OFFSET - index;
+                    (board_playable << offset, board_player << offset)
+                };
+                let mut COL_SCORE = 0;
+                for mask in &*WIN_MASKS{
+                    if (board_playable & mask).count_ones() == 4{
+                        let count = (board_player&mask).count_ones();
+                        let mask_score = match count {
+                            3 => 257, // 16 * 16 + 1
+                            2 => 17, // 16 win masks
+                            _ => 1,
+                        };
+                        COL_SCORE += mask_score; 
+                    }                    
+                }
+                col_scores.push((col_number, COL_SCORE));
+                self.unmake_move(col_number, row_number);
             }
         }
 
-        return vec![];
+        col_scores.sort_by_key(|&(_, score)| score);
+
+        return col_scores.iter().map(|&(col_number,_)|col_number).collect();
     }
 
     fn get_hash(&self)->u64{
@@ -363,7 +388,9 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
         }
     }
 
+    
     let mut value = i8::MIN;
+    //let move_order = game.get_candidate_moves();
     for col_num in MOVE_ORDER {
         if let (true, row_number) = game.make_move(col_num){
             value = max(value, -negamax(game, -beta, -alpha, transposition_table));
@@ -475,7 +502,7 @@ fn main() {
     use std::time::Instant;
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
-    let path = "test_cases/Test_L3_R1";
+    let path = "test_cases/Test_L2_R1";
     let (test_moves, test_evals) = read_test_file(path);
     let mut transposition_table = TranspositionTable::new(18);
     println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
