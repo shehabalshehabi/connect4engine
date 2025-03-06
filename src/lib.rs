@@ -1,5 +1,6 @@
 use core::borrow;
 use std::collections::btree_map::Keys;
+use std::u64;
 use std::{cmp::{max, min}, fmt, i8};
 use std::collections::HashMap;
 use rand::{Rng, SeedableRng};
@@ -53,6 +54,65 @@ const BOARD_MASK: Lazy<u64> = Lazy::new(|| {
     }
     board_mask
 });
+// Win masks are centered around (3,3) and do go off the board on some edges
+const WIN_MASKS: Lazy<Vec<u64>> = Lazy::new(|| {
+    let mut masks: Vec<u64> = Vec::new();
+    // Vertical win masks
+    for start in 0..4{
+        let mut mask = 0;
+        for i in start..start+4{
+            mask = set_bit(mask, 3, i, true)
+        }
+        masks.push(mask);
+    }
+    // Other win masks
+    for y_delta in -1..2{
+        for start_offset in -3..1{
+            let mut mask = 0;
+            for offset in start_offset..start_offset+4{
+                let x:u8 = (3 + offset) as u8;
+                let y:u8 = (3 + offset * y_delta) as u8;
+                mask = set_bit(mask, x, y, true);
+            }
+            masks.push(mask);
+        }
+    }
+    masks
+});
+const WIN_MASK_OFFSET: u8 = 3 * 8 + 3;
+
+fn get_bit(board: u64, column_number:u8, row_number:u8) -> bool{
+    let index = (column_number << 3) + row_number;
+    let mask = 1 << index;
+    if (board & mask == 0){
+        false
+    } else {
+        true
+    }
+}
+
+fn set_bit(board: u64, column_number:u8, row_number:u8, set: bool)->u64{
+    let index = (column_number << 3) + row_number;
+    let mask = 1 << index;
+    if set {
+        board | mask
+    } else {
+        board & !mask
+    }
+}
+
+fn print_board(board: u64){
+    for y in (0..ROWS).rev() {
+        for x in 0..COLS{
+            if get_bit(board, x, y){
+                print!("X")
+            } else {
+                print!("O")
+            }
+        }
+        println!();
+    }
+}
 
 static ZOBRIST_TABLE: Lazy<[[[u64;2]; ROWS as usize]; COLS as usize]> = Lazy::new(|| {
     let mut rng = StdRng::seed_from_u64(0);
@@ -244,7 +304,7 @@ impl Game {
         None
     }
 
-    fn get_candidate_moves(&self)->Vec<u8>{
+    fn get_candidate_moves(&mut self)->Vec<u8>{
         // We check for winning moves separately. We get candidate moves by checking for places where we have three tokens in a row
         // that could be extended to four followed by two in a row that can be extended to four
         let board_player = if self.moves_made % 2 == 0 {
@@ -252,6 +312,14 @@ impl Game {
         } else {
             self.board_set & !self.board_p1
         };
+        let board_playable= board_player | !self.board_set;
+
+        for i in 0..COLS{
+            if self.make_move(i){
+
+                self.unmake_move(i);
+            }
+        }
 
         return vec![];
     }
@@ -314,7 +382,7 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
             }
         }
     }
-    // We never get exact values from a null windo search and so don't check to speed things up.
+    // We never get exact values from a null window search and so don't check to speed things up.
     let value_type = if value >= beta {
         ValueType::LowerBound
     } else {
