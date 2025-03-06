@@ -203,9 +203,9 @@ impl Game {
         }
     }
 
-    fn make_move(&mut self, column_number:u8) -> bool{
+    fn make_move(&mut self, column_number:u8) -> (bool, u8){
         if !(self.game_status == GameStatus::InProgress) {
-            return false
+            return (false, 0)
         }
         // Check if column has been played at all - otherwise find slot using bitshift
         let (slot, row_number) = if ((self.board_set >> (8 * column_number)) & 1) == 0 {
@@ -219,7 +219,7 @@ impl Game {
                 8=>3,
                 16=>4,
                 32=>5,
-                _=>return false,
+                _=>return (false, 0),
             };
             (slot, row_number)
         };
@@ -245,10 +245,10 @@ impl Game {
             self.game_status = GameStatus::Draw
         }
         self.player_one_turn = !self.player_one_turn;
-        true
+        (true, row_number)
     }
 
-    fn unmake_move(&mut self, column_number:u8) -> bool{
+    fn unmake_move(&mut self, column_number:u8, row_number: u8) -> bool{
         // We do not check if this was the last move and leave it to the caller to ensure that it was.
         // We do not eveb check if it was possible for the player whose turn it was last played the move.
         let slot = (self.board_set & !(self.board_set >> 1)) & (COLUMN_MASK << 8 * column_number);
@@ -258,19 +258,11 @@ impl Game {
             self.board_set &= !slot;
             self.moves_made -= 1;
             self.game_status = GameStatus::InProgress;
-            let row_number = match (slot >> 8 * column_number){
-                1 => 0,
-                2 => 1,
-                4 => 2,
-                8 => 3,
-                16 => 4,
-                _ => 5,
-            };
             self.player_one_turn = !self.player_one_turn;
             if self.player_one_turn {
-                self.position_hash ^= ZOBRIST_TABLE[column_number as usize][row_number][0];
+                self.position_hash ^= ZOBRIST_TABLE[column_number as usize][row_number as usize][0];
             } else {
-                self.position_hash ^= ZOBRIST_TABLE[column_number as usize][row_number][1];
+                self.position_hash ^= ZOBRIST_TABLE[column_number as usize][row_number as usize][1];
             }
             true
         }
@@ -315,9 +307,9 @@ impl Game {
         let board_playable= board_player | !self.board_set;
 
         for i in 0..COLS{
-            if self.make_move(i){
+            if self.make_move(i).0{
 
-                self.unmake_move(i);
+                //self.unmake_move(i);
             }
         }
 
@@ -373,9 +365,9 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
 
     let mut value = i8::MIN;
     for col_num in MOVE_ORDER {
-        if game.make_move(col_num){
+        if let (true, row_number) = game.make_move(col_num){
             value = max(value, -negamax(game, -beta, -alpha, transposition_table));
-            game.unmake_move(col_num);
+            game.unmake_move(col_num, row_number);
             new_alpha = max(new_alpha, value);
             if new_alpha > beta {
                 break;
@@ -534,7 +526,7 @@ fn read_test_file(filename: &str)->(Vec<Vec<u8>>,Vec<i8>) {
 #[cfg(not(target_arch = "wasm32"))]
 fn setup_game(game:&mut Game, moves: &Vec<u8>){
     for col_num in moves{
-        if !game.make_move(*col_num){
+        if let (false, _) = game.make_move(*col_num){
             println!("{:?}", moves);
             println!("game_status: {:#?}, moves_played{}", col_num, game.moves_made);
             panic!("unable to make moves in test case!");
