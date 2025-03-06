@@ -44,11 +44,11 @@ impl fmt::Display for Slot {
     }
 }
 
-const ROWS: u8 = 6;
-const COLS: u8 = 7;
-const MOVE_ORDER: [u8; 7] = [3,4,2,5,1,6,0];
-const COLUMN_MASK: u64 = 2_u64.pow(ROWS as u32)-1;
-const BOARD_MASK: Lazy<u64> = Lazy::new(|| {
+static ROWS: u8 = 6;
+static COLS: u8 = 7;
+static MOVE_ORDER: [u8; 7] = [3,4,2,5,1,6,0];
+static COLUMN_MASK: u64 = 2_u64.pow(ROWS as u32)-1;
+static  BOARD_MASK: Lazy<u64> = Lazy::new(|| {
     let mut board_mask = COLUMN_MASK;
     for i in 1..COLS {
         board_mask = board_mask | (board_mask << 8 * i) 
@@ -56,7 +56,8 @@ const BOARD_MASK: Lazy<u64> = Lazy::new(|| {
     board_mask
 });
 // Win masks are centered around (3,3) and do go off the board on some edges
-const WIN_MASKS: Lazy<Vec<u64>> = Lazy::new(|| {
+/*
+static WIN_MASKS: Lazy<[u64; 16]> = Lazy::new(|| {
     let mut masks: Vec<u64> = Vec::new();
     // Vertical win masks
     for start in 0..4{
@@ -78,11 +79,11 @@ const WIN_MASKS: Lazy<Vec<u64>> = Lazy::new(|| {
             masks.push(mask);
         }
     }
-    masks
-});
-const WIN_MASK_OFFSET: u8 = 3 * 8 + 3;
+    masks.try_into().expect("Error generating win masks")
+});*/
+static WIN_MASK_OFFSET: u8 = 3 * 8 + 3;
 
-const WIN_MASK_ARR: Lazy<Vec<Vec<Vec<u64>>>> = Lazy::new(|| {
+/*static WIN_MASK_ARR: Lazy<Vec<Vec<Vec<u64>>>> = Lazy::new(|| {
     let mut mask_arr: Vec<Vec<Vec<u64>>> = Vec::new();
     for col_num in 0..COLS{
         let mut row_masks = Vec::new();
@@ -124,7 +125,24 @@ const WIN_MASK_ARR: Lazy<Vec<Vec<Vec<u64>>>> = Lazy::new(|| {
     }
     
     mask_arr
-});
+});*/
+
+const WIN_MASKS:[u64;16] = [251658240,
+                            503316480,
+                            1006632960,
+                            2013265920,
+                            135274560,
+                            17315143680,
+                            2216338391040,
+                            283691314053120,
+                            134744072,
+                            34494482432,
+                            8830587502592,
+                            2260630400663552,
+                            134480385,
+                            68853957120,
+                            35253226045440,
+                            18049651735265280];
 
 fn get_bit(board: u64, column_number:u8, row_number:u8) -> bool{
     let index = (column_number << 3) + row_number;
@@ -355,8 +373,17 @@ impl Game {
         let mut col_scores: Vec<(u8, u32)> = Vec::new();
         for col_number in 0..COLS{
             if let (true, row_number) = self.make_move(col_number){
+                let index = col_number * 8 + row_number;
+                // We align the board to the masks
+                let (board_playable, board_player) = if (index >= WIN_MASK_OFFSET){
+                    let offset = index - WIN_MASK_OFFSET;
+                    (board_playable >> offset, board_player >> offset)
+                } else {
+                    let offset = WIN_MASK_OFFSET - index;
+                    (board_playable << offset, board_player << offset)
+                };
                 let mut COL_SCORE = 0;
-                for mask in &*WIN_MASK_ARR[col_number as usize][row_number as usize]{
+                for mask in WIN_MASKS{
                     if (board_playable & mask).count_ones() == 4{
                         let count = (board_player&mask).count_ones();
                         let mask_score = match count {
