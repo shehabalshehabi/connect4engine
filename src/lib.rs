@@ -7,6 +7,7 @@ use rand::{Rng, SeedableRng};
 use wasm_bindgen::prelude::*;
 use once_cell::sync::Lazy;
 use rand::rngs::StdRng;
+use std::cmp::Reverse;
 
 #[wasm_bindgen]
 extern "C" {
@@ -80,6 +81,50 @@ const WIN_MASKS: Lazy<Vec<u64>> = Lazy::new(|| {
     masks
 });
 const WIN_MASK_OFFSET: u8 = 3 * 8 + 3;
+
+const WIN_MASK_ARR: Lazy<Vec<Vec<Vec<u64>>>> = Lazy::new(|| {
+    let mut mask_arr: Vec<Vec<Vec<u64>>> = Vec::new();
+    for col_num in 0..COLS{
+        let mut row_masks = Vec::new();
+        for row_num in 0..ROWS{
+            let mut masks = Vec::new();
+            // Vertical win masks
+            for start in (if row_num>=3{row_num-3}else{0})..row_num+1{
+                let mut mask = 0;
+                if start+3>= ROWS{
+                    break;
+                }
+                for y in start..start+4{
+                    mask = set_bit(mask, col_num, y, true)
+                }
+                masks.push(mask);
+            }
+            
+            //Other win masks
+            for y_delta in -1..2{
+                for start_offset in -3..1{
+                    let mut mask = 0;
+                    for offset in start_offset..start_offset+4{
+                        let x:i8 = col_num as i8 + offset;
+                        let y:i8 = row_num as i8 + offset * y_delta;
+                        if (x < 0) | (x >= COLS as i8) | (y < 0) | (y >= ROWS as i8){
+                            break;
+                        }
+                        mask = set_bit(mask, x as u8, y as u8, true);
+                        if offset == start_offset + 3{
+                            masks.push(mask);
+                        }
+                    }
+                }
+            }
+            //println!("{col_num},{row_num}, {}", masks.len());
+            row_masks.push(masks);
+        }
+        mask_arr.push(row_masks);
+    }
+    
+    mask_arr
+});
 
 fn get_bit(board: u64, column_number:u8, row_number:u8) -> bool{
     let index = (column_number << 3) + row_number;
@@ -310,17 +355,8 @@ impl Game {
         let mut col_scores: Vec<(u8, u32)> = Vec::new();
         for col_number in 0..COLS{
             if let (true, row_number) = self.make_move(col_number){
-                let index = col_number * 8 + row_number;
-                // We align the board to the masks
-                let (board_playable, board_player) = if (index >= WIN_MASK_OFFSET){
-                    let offset = index - WIN_MASK_OFFSET;
-                    (board_playable >> offset, board_player >> offset)
-                } else {
-                    let offset = WIN_MASK_OFFSET - index;
-                    (board_playable << offset, board_player << offset)
-                };
                 let mut COL_SCORE = 0;
-                for mask in &*WIN_MASKS{
+                for mask in &*WIN_MASK_ARR[col_number as usize][row_number as usize]{
                     if (board_playable & mask).count_ones() == 4{
                         let count = (board_player&mask).count_ones();
                         let mask_score = match count {
@@ -336,7 +372,7 @@ impl Game {
             }
         }
 
-        col_scores.sort_by_key(|&(_, score)| score);
+        col_scores.sort_by_key(|&(_, score)| Reverse(score));
 
         return col_scores.iter().map(|&(col_number,_)|col_number).collect();
     }
@@ -346,7 +382,8 @@ impl Game {
     }
 }
 
-fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable)->i8{
+fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable, nodes: &mut u64)->i8{
+    *nodes += 1;
     let max_possible = (43 - game.moves_made)/2;
     if max_possible < alpha {
         return alpha
@@ -390,10 +427,10 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
 
     
     let mut value = i8::MIN;
-    //let move_order = game.get_candidate_moves();
-    for col_num in MOVE_ORDER {
+    let move_order = game.get_candidate_moves();
+    for col_num in move_order {
         if let (true, row_number) = game.make_move(col_num){
-            value = max(value, -negamax(game, -beta, -alpha, transposition_table));
+            value = max(value, -negamax(game, -beta, -alpha, transposition_table, nodes));
             game.unmake_move(col_num, row_number);
             new_alpha = max(new_alpha, value);
             if new_alpha > beta {
@@ -464,10 +501,11 @@ impl TranspositionTable {
 }
 
 fn negamax_wrapper(game:&mut Game, transposition_table: &mut TranspositionTable)->i8{
-    negamax(game, -i8::MAX, i8::MAX, transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
+    //negamax(game, -i8::MAX, i8::MAX, transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
+    0
 }
 
-fn search(game: &mut Game, transposition_table: &mut TranspositionTable)->i8{
+fn search(game: &mut Game, transposition_table: &mut TranspositionTable, nodes: &mut u64)->i8{
     let mut maximum_possible = (42 - game.moves_made)/2;
     let mut minimum_possible = -(43 - game.moves_made)/2;
 
@@ -486,7 +524,7 @@ fn search(game: &mut Game, transposition_table: &mut TranspositionTable)->i8{
             window = min(window, minimum_possible/2);
         }
         //println!("{minimum_possible}, {maximum_possible}, {window}");
-        let result = negamax(game, window, window+1, transposition_table);
+        let result = negamax(game, window, window+1, transposition_table, nodes);
         //println!("{minimum_possible}, {maximum_possible}, {window}, {result}");
         if result <= window {
             maximum_possible = window
@@ -499,7 +537,7 @@ fn search(game: &mut Game, transposition_table: &mut TranspositionTable)->i8{
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use std::time::Instant;
+    use std::{thread::sleep, time::{Duration, Instant}};
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
     let path = "test_cases/Test_L2_R1";
@@ -507,13 +545,15 @@ fn main() {
     let mut transposition_table = TranspositionTable::new(18);
     println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
 
+    let mut nodes = 0;
+
     let start = Instant::now();
     for i in tqdm(0..1000){
         let mut game = Game::new();
         setup_game(&mut game, &test_moves[i]);
         //let eval = negamax_wrapper(&mut game, 14, &mut transposition_table);
         //let eval = negamax(&mut game, -1, 1, &mut transposition_table);
-        let eval = search(&mut game, &mut transposition_table);
+        let eval = search(&mut game, &mut transposition_table, &mut nodes);
         //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
         if eval != test_evals[i]{
             println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
@@ -522,6 +562,7 @@ fn main() {
     }
     let time_taken = start.elapsed();
     println!("Time Taken: {:#?}", time_taken);
+    println!("Nodes: {:#?}", nodes);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
