@@ -412,12 +412,12 @@ impl Game {
 fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable, nodes: &mut u64)->i8{
     *nodes += 1;
     let max_possible = (43 - game.moves_made)/2;
-    if max_possible < alpha {
-        return alpha
+    if max_possible <= alpha {
+        return max_possible
     }
     let min_possible = -(42 - game.moves_made)/2;
-    if min_possible > beta {
-        return beta;
+    if min_possible >= beta {
+        return min_possible;
     }
 
     match &game.game_status {
@@ -454,26 +454,24 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
 
     
     let mut value = i8::MIN;
-    let move_order = game.get_candidate_moves();
-    for col_num in move_order {
+    //let move_order = game.get_candidate_moves();
+    for col_num in MOVE_ORDER {
         if let (true, row_number) = game.make_move(col_num){
             value = max(value, -negamax(game, -beta, -alpha, transposition_table, nodes));
             game.unmake_move(col_num, row_number);
             new_alpha = max(new_alpha, value);
-            if new_alpha > beta {
-                break;
+            if new_alpha >= beta {
+                transposition_table.insert(pos, Eval {
+                    value: beta,
+                    value_type: ValueType::LowerBound,
+                });
+                return beta;
             }
         }
     }
-    // We never get exact values from a null window search and so don't check to speed things up.
-    let value_type = if value >= beta {
-        ValueType::LowerBound
-    } else {
-        ValueType::UpperBound
-    }; 
     transposition_table.insert(pos, Eval {
-        value,
-        value_type
+        value: new_alpha,
+        value_type: ValueType::UpperBound
     });
     value
 }
@@ -567,9 +565,9 @@ fn main() {
     use std::{thread::sleep, time::{Duration, Instant}};
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
-    let path = "test_cases/Test_L2_R1";
+    let path = "test_cases/Test_L3_R1";
     let (test_moves, test_evals) = read_test_file(path);
-    let mut transposition_table = TranspositionTable::new(18);
+    let mut transposition_table = TranspositionTable::new(23);
     println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
 
     let mut nodes = 0;
@@ -579,7 +577,7 @@ fn main() {
         let mut game = Game::new();
         setup_game(&mut game, &test_moves[i]);
         //let eval = negamax_wrapper(&mut game, 14, &mut transposition_table);
-        //let eval = negamax(&mut game, -1, 1, &mut transposition_table);
+        //let eval = negamax(&mut game, -14, 14, &mut transposition_table, &mut nodes);
         let eval = search(&mut game, &mut transposition_table, &mut nodes);
         //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
         if eval != test_evals[i]{
@@ -588,8 +586,8 @@ fn main() {
         }
     }
     let time_taken = start.elapsed();
-    println!("Time Taken: {:#?}", time_taken);
-    println!("Nodes: {:#?}", nodes);
+    println!("Mean Time Taken: {:#?}", time_taken/1000);
+    println!("Mean Nodes: {:#?}", nodes/1000);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
