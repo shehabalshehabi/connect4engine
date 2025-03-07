@@ -207,6 +207,28 @@ fn check_board_for_win(board: u64)->bool{
     false
 }
 
+fn get_winning_squares(player_squares:u64, played: u64)->u64{
+    let mut winning_squares = 0;
+    winning_squares |= (player_squares << 1) & (player_squares << 2) & (player_squares << 3);
+
+    winning_squares |= (player_squares << 8) & (player_squares << 16) & (player_squares << 24);
+    winning_squares |= (player_squares >> 8) & (player_squares << 8) & (player_squares << 16);
+    winning_squares |= (player_squares >> 16) & (player_squares >> 8) & (player_squares << 8);
+    winning_squares |= (player_squares >> 24) & (player_squares >> 16) & (player_squares >> 8);
+
+    winning_squares |= (player_squares << 9) & (player_squares << 18) & (player_squares << 27);
+    winning_squares |= (player_squares >> 9) & (player_squares << 9) & (player_squares << 18);
+    winning_squares |= (player_squares >> 18) & (player_squares >> 9) & (player_squares << 9);
+    winning_squares |= (player_squares >> 27) & (player_squares >> 18) & (player_squares >> 9);
+
+    winning_squares |= (player_squares << 7) & (player_squares << 14) & (player_squares << 21);
+    winning_squares |= (player_squares >> 7) & (player_squares << 7) & (player_squares << 14);
+    winning_squares |= (player_squares >> 14) & (player_squares >> 7) & (player_squares << 7);
+    winning_squares |= (player_squares >> 21) & (player_squares >> 14) & (player_squares >> 7);
+
+    winning_squares & !played
+}
+
 struct Game {
     board_set: u64,
     board_p1: u64,
@@ -382,7 +404,7 @@ impl Game {
                     let offset = WIN_MASK_OFFSET - index;
                     (board_playable << offset, board_player << offset)
                 };
-                let mut COL_SCORE = 0;
+                let mut col_score = 0;
                 for mask in WIN_MASKS{
                     if (board_playable & mask).count_ones() == 4{
                         let count = (board_player&mask).count_ones();
@@ -391,10 +413,10 @@ impl Game {
                             2 => 17, // 16 win masks
                             _ => 1,
                         };
-                        COL_SCORE += mask_score; 
+                        col_score += mask_score; 
                     }                    
                 }
-                col_scores.push((col_number, COL_SCORE));
+                col_scores.push((col_number, col_score));
                 self.unmake_move(col_number, row_number);
             }
         }
@@ -416,7 +438,7 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
         return max_possible
     }
     let min_possible = -(42 - game.moves_made)/2;
-    if min_possible >= beta {
+    if min_possible > beta {
         return min_possible;
     }
 
@@ -565,7 +587,7 @@ fn main() {
     use std::{thread::sleep, time::{Duration, Instant}};
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
-    let path = "test_cases/Test_L3_R1";
+    let path = "test_cases/Test_L2_R1";
     let (test_moves, test_evals) = read_test_file(path);
     let mut transposition_table = TranspositionTable::new(23);
     println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
