@@ -48,12 +48,21 @@ static ROWS: u8 = 6;
 static COLS: u8 = 7;
 static MOVE_ORDER: [u8; 7] = [3,4,2,5,1,6,0];
 static COLUMN_MASK: u64 = 2_u64.pow(ROWS as u32)-1;
-static  BOARD_MASK: Lazy<u64> = Lazy::new(|| {
-    let mut board_mask = COLUMN_MASK;
-    for i in 1..COLS {
-        board_mask = board_mask | (board_mask << 8 * i) 
+static BOARD_MASK: Lazy<u64> = Lazy::new(|| {
+    let mut board_mask = 0;
+    for i in 0..COLS {
+        board_mask |= (COLUMN_MASK << 8 * i) 
     }
     board_mask
+    
+});
+static BOTTOM_ROW: Lazy<u64> = Lazy::new(|| {
+    let mut board_mask = 1;
+    for i in 0..COLS-1 {
+        board_mask |= board_mask << 8 
+    }
+    board_mask
+    
 });
 // Win masks are centered around (3,3) and do go off the board on some edges
 /*
@@ -226,7 +235,7 @@ fn get_winning_squares(player_squares:u64, played: u64)->u64{
     winning_squares |= (player_squares >> 14) & (player_squares >> 7) & (player_squares << 7);
     winning_squares |= (player_squares >> 21) & (player_squares >> 14) & (player_squares >> 7);
 
-    winning_squares & !played
+    winning_squares & !played & *BOARD_MASK
 }
 
 struct Game {
@@ -272,7 +281,7 @@ impl Game {
         let mask = 1 << index;
         if (self.board_set & mask== 0){
             Slot::Empty
-        } else if (self.board_p1 & mask == 0){
+        } else if (!self.board_p1 & mask == 0){
             Slot::Player1
         } else {
             Slot::Player2
@@ -363,22 +372,18 @@ impl Game {
         check_board_for_win(board)
     }
 
-    fn get_winning_move(&self)->Option<u8>{
-        let board_player = if self.moves_made % 2 == 0 {
-            self.board_set & self.board_p1
-        } else {
-            self.board_set & !self.board_p1
-        };
+    fn get_board_playable(&self)->u64{
+        ((self.board_set << 1) | *BOTTOM_ROW) & !(self.board_set) & *BOARD_MASK
+    }
 
-        let board_playable = (self.board_set << 1) & !(self.board_set);
-        
-        for i in 0..COLS{
-            let board = board_player | (board_playable & (COLUMN_MASK << 8 * i));
-            if check_board_for_win(board){
-                return Some(i);
-            }
+    fn get_winning_move(&self)->Option<u8>{
+        let player_squares = if self.player_one_turn {self.board_set & self.board_p1} else {self.board_set & !self.board_p1};
+        let winning_squares = get_winning_squares(player_squares, self.board_set);
+        let board_playable = self.get_board_playable();
+        if (winning_squares & board_playable) != 0 {
+            return Some (1);
         }
-        None
+        None 
     }
 
     fn get_candidate_moves(&mut self)->[u8;7]{
@@ -438,14 +443,6 @@ impl Game {
 
 fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable, nodes: &mut u64)->i8{
     *nodes += 1;
-    let max_possible = (43 - game.moves_made)/2;
-    if max_possible <= alpha {
-        return max_possible
-    }
-    let min_possible = -(42 - game.moves_made)/2;
-    if min_possible > beta {
-        return min_possible;
-    }
 
     match &game.game_status {
         GameStatus::InProgress => (),
@@ -453,9 +450,26 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
         _ => return -22 + (game.moves_made+1)/2, // negamax can only be called in a decided game by lost player
     }
 
+    let max_possible = 21 - game.moves_made/2;
+    if max_possible <= alpha {
+        return max_possible
+    }
+    let min_possible = -21 + (game.moves_made+1)/2;
+    if min_possible >= beta {
+        return min_possible;
+    }
+
     if let Some(_move) = game.get_winning_move(){
         return max_possible
     }
+
+    let opponent_slots = if game.player_one_turn{!game.board_p1 & game.board_set} else {game.board_p1 & game.board_set};
+    let opponent_winning_squares = get_winning_squares(opponent_slots, game.board_set);
+    let board_playable = game.get_board_playable();
+    if (board_playable & opponent_winning_squares).count_ones() > 1 {
+        return min_possible;
+    }
+
 
     let mut new_alpha = alpha;
     let pos = game.get_hash();
@@ -595,7 +609,7 @@ fn main() {
     use std::{thread::sleep, time::{Duration, Instant}};
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
-    let path = "test_cases/Test_L1_R2";
+    let path = "test_cases/Test_L2_R2";
     let (test_moves, test_evals) = read_test_file(path);
     let mut transposition_table = TranspositionTable::new(23);
     println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
@@ -618,6 +632,34 @@ fn main() {
     let time_taken = start.elapsed();
     println!("Mean Time Taken: {:#?}", time_taken/1000);
     println!("Mean Nodes: {:#?}", nodes/1000);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn trace_pv(game: &mut Game, transposition_table: &mut TranspositionTable, nodes: &mut u64){
+    let mut best_col = 0;
+    let mut best_eval = 0;
+    game.print();
+
+    while best_eval != -100 {
+        best_eval = -100;
+        for i in 0..COLS{
+            if let (true, row_number) = game.make_move(i){
+                let eval = search(game, transposition_table, nodes);
+                println!("{i}:{} hash={}", -eval, game.get_hash());
+                if -eval > best_eval{
+                    best_eval = -eval;
+                    best_col = i;
+                }
+                game.unmake_move(i, row_number);
+            }
+        }
+        if best_eval != -100{
+            game.make_move(best_col);
+            println!("move made: {}", best_col);
+            game.print();
+            println!()
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
