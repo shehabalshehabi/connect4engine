@@ -466,8 +466,21 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
     let opponent_slots = if game.player_one_turn{!game.board_p1 & game.board_set} else {game.board_p1 & game.board_set};
     let opponent_winning_squares = get_winning_squares(opponent_slots, game.board_set);
     let board_playable = game.get_board_playable();
-    if (board_playable & opponent_winning_squares).count_ones() > 1 {
-        return min_possible;
+
+    match (board_playable & opponent_winning_squares).count_ones() {
+        0 => (),
+        1 => {
+            for i in 0..COLS{
+                if board_playable & opponent_winning_squares & (COLUMN_MASK << (i * 8)) != 0{
+                    if let (true, row_number) = game.make_move(i){
+                        let val = -negamax(game, -beta, -alpha, transposition_table, nodes);
+                        game.unmake_move(i, row_number);
+                        return val;
+                    }
+                }
+            }
+        },
+        _ => return min_possible
     }
 
 
