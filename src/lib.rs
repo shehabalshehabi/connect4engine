@@ -1,6 +1,6 @@
 use core::borrow;
 use std::collections::btree_map::Keys;
-use std::u64;
+use std::{i32, u64};
 use std::{cmp::{max, min}, fmt, i8};
 use std::collections::HashMap;
 use rand::{Rng, SeedableRng};
@@ -236,6 +236,37 @@ fn get_winning_squares(player_squares:u64, played: u64)->u64{
     winning_squares |= (player_squares >> 21) & (player_squares >> 14) & (player_squares >> 7);
 
     winning_squares & !played & *BOARD_MASK
+}
+
+fn stable_sort_moves(col_scores: [(usize, i32);7], playable_cols: usize)->[usize;7]{
+    let mut move_order = [255;7];
+    let mut best_score_index;
+    let mut best_score;
+    let mut prev_best_score = i32::MAX;
+    let mut prev_score_index = 0;
+    for i in 0..playable_cols{
+        best_score = -1;
+        best_score_index = 7;
+        for j in 0..playable_cols{
+            let j_score = col_scores[j].1;
+            
+            if j_score > prev_best_score {
+                continue;
+            }
+            if (j_score == prev_best_score) & (j <= prev_score_index){
+                continue;
+            }
+            
+            if j_score > best_score{
+                best_score = j_score;
+                best_score_index = j;
+            }
+        }
+        move_order[i] = col_scores[best_score_index].0;
+        prev_score_index = best_score_index;
+        prev_best_score = best_score;
+    }
+    move_order
 }
 
 struct Game {
