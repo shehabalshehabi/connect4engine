@@ -588,8 +588,8 @@ fn negamax_wrapper(game:&mut Game, transposition_table: &mut TranspositionTable)
 }
 
 fn search(game: &mut Game, transposition_table: &mut TranspositionTable, nodes: &mut u64)->i8{
-    let mut maximum_possible = (42 - game.moves_made)/2;
-    let mut minimum_possible = -(43 - game.moves_made)/2;
+    let mut maximum_possible = 21 - game.moves_made/2;
+    let mut minimum_possible = -21 + (game.moves_made+1)/2;
 
     /* Iterative deepening algorithm used by Pascal Pons
 
