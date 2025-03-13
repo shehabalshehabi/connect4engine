@@ -484,7 +484,8 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
     }
 
 
-    let mut new_alpha = alpha;
+    let mut alpha = alpha;
+    let mut beta = beta;
     let pos = game.get_hash();
     
     
@@ -497,10 +498,16 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
                 if eval.value >= beta {
                     return eval.value;
                 }
+                if eval.value > alpha{
+                    alpha = eval.value
+                }
             }
             ValueType::UpperBound => {
                 if eval.value <= alpha {
                     return eval.value;
+                }
+                if eval.value < beta {
+                    beta = eval.value;
                 }
             }
         }
@@ -516,8 +523,8 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
         if let (true, row_number) = game.make_move(col_num){
             value = max(value, -negamax(game, -beta, -alpha, transposition_table, nodes));
             game.unmake_move(col_num, row_number);
-            new_alpha = max(new_alpha, value);
-            if new_alpha >= beta {
+            alpha = max(alpha, value);
+            if alpha >= beta {
                 transposition_table.insert(pos, Eval {
                     value: beta,
                     value_type: ValueType::LowerBound,
@@ -527,10 +534,10 @@ fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Transp
         }
     }
     transposition_table.insert(pos, Eval {
-        value: new_alpha,
+        value: alpha,
         value_type: ValueType::UpperBound
     });
-    value
+    alpha
 }
 
 #[derive(Clone)]
