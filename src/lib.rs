@@ -425,34 +425,15 @@ impl Game {
         } else {
             self.board_set & !self.board_p1
         };
-        let board_playable= board_player | !self.board_set;
 
         // Loop through moves and evaluate their potential of being part of a winning sequence.
         let mut col_scores = [(0,0);7];
         let mut playable_cols = 0;
-        for col_number in 0..COLS{
+        for col_number in MOVE_ORDER{
             if let (true, row_number) = self.make_move(col_number){
-                let index = col_number * 8 + row_number;
-                // We align the board to the masks
-                let (board_playable, board_player) = if (index >= WIN_MASK_OFFSET){
-                    let offset = index - WIN_MASK_OFFSET;
-                    (board_playable >> offset, board_player >> offset)
-                } else {
-                    let offset = WIN_MASK_OFFSET - index;
-                    (board_playable << offset, board_player << offset)
-                };
-                let mut col_score = 0;
-                for mask in WIN_MASKS{
-                    if (board_playable & mask).count_ones() == 4{
-                        let count = (board_player&mask).count_ones();
-                        let mask_score = match count {
-                            3 => 257, // 16 * 16 + 1
-                            2 => 17, // 16 win masks
-                            _ => 1,
-                        };
-                        col_score += mask_score; 
-                    }                    
-                }
+                // The playing player has tried his move so we need the squares of the one whose turn it isn't 
+                let player_squares = if self.player_one_turn {!self.board_p1 & self.board_set} else {self.board_p1 & self.board_set};
+                let col_score = get_winning_squares(player_squares, self.board_set).count_ones();
                 col_scores[playable_cols] = (col_number,col_score);
                 playable_cols += 1;
                 self.unmake_move(col_number, row_number);
