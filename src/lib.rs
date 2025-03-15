@@ -576,29 +576,48 @@ struct TranspositionTableEntry{
 
 struct TranspositionTable{
     address_mask : u64,
-    entries : Box<[Option<TranspositionTableEntry>]>,
+    entries : Box<[u64]>,
 }
 
 impl TranspositionTable {
+    // 64 bit entries. 56 bits for key. Last 8 bits for value. Eval +50 for upper bound -50 for lower bound.
     fn new(n: usize) -> Self {
         Self {
             address_mask: (1<<n)-1,
-            entries: vec![None; 1<<n].into_boxed_slice()
+            entries: vec![0; 1<<n].into_boxed_slice()
         }
     }
     fn insert(&mut self, key: u64, value: Eval){
         let position = key & self.address_mask;
-        self.entries[position as usize] = Some(TranspositionTableEntry{
-            key,
-            eval: value,
-        });
+        let entry_val = match value.value_type {
+            ValueType::LowerBound => value.value - 50,
+            ValueType::UpperBound => value.value + 50,
+            ValueType::Exact => value.value,
+        };
+        let entry = key >> 8 << 8 | (entry_val as u8 as u64);
+        self.entries[position as usize] = entry;
     }
-    fn get(&mut self, key: u64)->Option<&Eval>{
+    fn get(&mut self, key: u64)->Option<Eval>{
         let position = key & self.address_mask;
-        if let Some(entry) = &self.entries[position as usize]{
-            if entry.key == key {
-                return Some(&entry.eval)
+        let entry =  self.entries[position as usize];
+        if key >> 8 == entry >> 8 {
+            let entry_val = entry as i8;
+            if entry_val < -25 {
+                return Some(Eval{
+                    value: entry_val + 50,
+                    value_type: ValueType::LowerBound,
+                });
             }
+            if entry_val > 25 {
+                return Some(Eval{
+                    value: entry_val - 50,
+                    value_type: ValueType::UpperBound,
+                });
+            }
+            return Some(Eval{
+                value: entry_val,
+                value_type: ValueType::Exact,
+            });
         }
         None
     }
@@ -646,8 +665,8 @@ fn main() {
 
     let path = "test_cases/Test_L2_R2";
     let (test_moves, test_evals) = read_test_file(path);
-    let mut transposition_table = TranspositionTable::new(23);
-    println!("mem {}", std::mem::size_of::<TranspositionTableEntry>());
+    let mut transposition_table = TranspositionTable::new(20);
+    println!("mem {}", std::mem::size_of::<u64>());
 
     let mut nodes = 0;
 
