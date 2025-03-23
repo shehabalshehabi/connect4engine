@@ -1,0 +1,1 @@
+Opening book created by Markus Thill and retrieved from https://github.com/MarkusThill/Connect-Four
