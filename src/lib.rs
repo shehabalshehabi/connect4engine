@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use core::borrow;
 use std::collections::btree_map::Keys;
 use std::{i32, u64};
@@ -663,9 +664,21 @@ fn main() {
     use std::{thread::sleep, time::{Duration, Instant}};
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
-    let path = "test_cases/Test_L2_R2";
+    let mut game = Game::new();
+    game.make_move(3);
+    let start = Instant::now();
+    
+    let mut transposition_table = TranspositionTable::new(30);
+    let mut nodes = 0;
+    println!("{}", search(&mut game, &mut transposition_table, &mut nodes));
+    let time_taken = start.elapsed();
+    println!("Time Taken: {:#?}", time_taken);
+    return;
+
+
+    let path = "test_cases/Test_L1_R3";
     let (test_moves, test_evals) = read_test_file(path);
-    let mut transposition_table = TranspositionTable::new(20);
+    let mut transposition_table = TranspositionTable::new(30);
     println!("mem {}", std::mem::size_of::<u64>());
 
     let mut nodes = 0;
@@ -750,5 +763,32 @@ fn setup_game(game:&mut Game, moves: &Vec<u8>){
             println!("game_status: {:#?}, moves_played{}", col_num, game.moves_made);
             panic!("unable to make moves in test case!");
         }
+    }
+}
+
+fn calculate_tree_width(game:&mut Game, plies: i8, seen: &mut HashSet<u64>)->u64{
+    if game.moves_made == plies {
+        1
+    } else {
+        let mut positions = 0;
+
+        for col_number in 0..COLS{
+            if let (true, row_number) = game.make_move(col_number){
+                let pos = game.get_hash();
+                if seen.contains(&pos){
+                    game.unmake_move(col_number, row_number);
+                    continue;
+                }
+                else {
+                    seen.insert(pos);
+                    print!("{col_number}");
+                    positions += calculate_tree_width(game, plies, seen);
+                    game.unmake_move(col_number, row_number);
+                    print!("\x08 \x08");
+                }
+
+            }
+        }
+        positions
     }
 }
