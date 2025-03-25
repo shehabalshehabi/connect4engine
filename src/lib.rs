@@ -1,8 +1,10 @@
 mod game;
 mod engine;
+mod book;
 
 use game::*;
 use engine::*;
+use book::*;
 use wasm_bindgen::prelude::*;
 
 
@@ -20,6 +22,10 @@ pub fn greet(name: &str) {
 fn main() {
     use std::{thread::sleep, time::{Duration, Instant}};
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
+
+    let book = OpeningBook::new();
+    println!("HERE");
+    return;
 
     /*let mut game = Game::new();
     game.make_move(3);
