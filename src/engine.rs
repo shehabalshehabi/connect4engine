@@ -1,9 +1,11 @@
 use crate::game::*;
+use crate::book::*;
 use std::collections::HashSet;
 use std::u64;
 use std::{cmp::{max, min}, i8};
 
-pub fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable, nodes: &mut u64)->i8{
+pub fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut TranspositionTable,
+        book: &OpeningBook, nodes: &mut u64)->i8{
     *nodes += 1;
 
     match &game.game_status {
@@ -29,6 +31,12 @@ pub fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Tr
         return max_possible;
     }
 
+    if game.moves_made == 12 {
+        if let Some(eval) = book.lookup(game.board_set, game.board_p1){
+            return eval;
+        }
+    }
+
     let opponent_slots = if game.player_one_turn{!game.board_p1 & game.board_set} else {game.board_p1 & game.board_set};
     let opponent_winning_squares = get_winning_squares(opponent_slots, game.board_set);
 
@@ -38,7 +46,7 @@ pub fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Tr
             for i in 0..COLS{
                 if board_playable & opponent_winning_squares & (COLUMN_MASK << (i * 8)) != 0{
                     if let (true, row_number) = game.make_move(i){
-                        let val = -negamax(game, -beta, -alpha, transposition_table, nodes);
+                        let val = -negamax(game, -beta, -alpha, transposition_table, book, nodes);
                         game.unmake_move(i, row_number);
                         return val;
                     }
@@ -86,7 +94,7 @@ pub fn negamax(game:&mut Game, alpha: i8, beta: i8, transposition_table: &mut Tr
             break;
         }
         if let (true, row_number) = game.make_move(col_num){
-            value = max(value, -negamax(game, -beta, -alpha, transposition_table, nodes));
+            value = max(value, -negamax(game, -beta, -alpha, transposition_table, book, nodes));
             game.unmake_move(col_num, row_number);
             alpha = max(alpha, value);
             if alpha >= beta {
@@ -148,6 +156,9 @@ impl TranspositionTable {
         self.entries[position as usize] = entry;
     }
     pub fn get(&mut self, key: u64)->Option<Eval>{
+        if key==0 {
+            return None;
+        }
         let position = key & self.address_mask;
         let entry =  self.entries[position as usize];
         if key >> 8 == entry >> 8 {
@@ -178,7 +189,7 @@ pub fn negamax_wrapper(game:&mut Game, transposition_table: &mut TranspositionTa
     0
 }
 
-pub fn search(game: &mut Game, transposition_table: &mut TranspositionTable, nodes: &mut u64)->i8{
+pub fn search(game: &mut Game, transposition_table: &mut TranspositionTable, book: &OpeningBook, nodes: &mut u64)->i8{
     let mut maximum_possible = 21 - game.moves_made/2;
     let mut minimum_possible = -21 + (game.moves_made+1)/2;
 
@@ -197,7 +208,7 @@ pub fn search(game: &mut Game, transposition_table: &mut TranspositionTable, nod
             window = min(window, minimum_possible/2);
         }
         //println!("{minimum_possible}, {maximum_possible}, {window}");
-        let result = negamax(game, window, window+1, transposition_table, nodes);
+        let result = negamax(game, window, window+1, transposition_table, book, nodes);
         //println!("{minimum_possible}, {maximum_possible}, {window}, {result}");
         if result <= window {
             maximum_possible = window

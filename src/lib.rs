@@ -23,9 +23,6 @@ fn main() {
     use std::{thread::sleep, time::{Duration, Instant}};
     use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
 
-    let book = OpeningBook::new();
-    println!("HERE");
-    return;
 
     /*let mut game = Game::new();
     game.make_move(3);
@@ -44,6 +41,7 @@ fn main() {
     let mut transposition_table = TranspositionTable::new(30);
     println!("mem {}", std::mem::size_of::<u64>());
 
+    let book = OpeningBook::new();
     let mut nodes = 0;
 
     let start = Instant::now();
@@ -52,7 +50,7 @@ fn main() {
         setup_game(&mut game, &test_moves[i]);
         //let eval = negamax_wrapper(&mut game, 14, &mut transposition_table);
         //let eval = negamax(&mut game, -14, 14, &mut transposition_table, &mut nodes);
-        let eval = search(&mut game, &mut transposition_table, &mut nodes);
+        let eval = search(&mut game, &mut transposition_table, &book, &mut nodes);
         //println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
         if eval != test_evals[i]{
             println!("game {}, eval {}, answer {}", i, eval, test_evals[i]);
@@ -65,7 +63,7 @@ fn main() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn trace_pv(game: &mut Game, transposition_table: &mut TranspositionTable, nodes: &mut u64){
+fn trace_pv(game: &mut Game, transposition_table: &mut TranspositionTable, book: &OpeningBook, nodes: &mut u64){
     let mut best_col = 0;
     let mut best_eval = 0;
     game.print();
@@ -74,7 +72,7 @@ fn trace_pv(game: &mut Game, transposition_table: &mut TranspositionTable, nodes
         best_eval = -100;
         for i in 0..COLS{
             if let (true, row_number) = game.make_move(i){
-                let eval = search(game, transposition_table, nodes);
+                let eval = search(game, transposition_table, book, nodes);
                 println!("{i}:{} hash={}", -eval, game.get_hash());
                 if -eval > best_eval{
                     best_eval = -eval;
@@ -125,6 +123,63 @@ fn setup_game(game:&mut Game, moves: &Vec<u8>){
             println!("{:?}", moves);
             println!("game_status: {:#?}, moves_played{}", col_num, game.moves_made);
             panic!("unable to make moves in test case!");
+        }
+    }
+}
+
+fn test_book_corrections() {
+    let book = OpeningBook::new();
+    let mut empty_book = OpeningBook::new();
+    for i in 0..BOOK_ENTRIES{
+        empty_book.positions[i] = 0;
+        empty_book.evals[i] = 0;
+    }
+    for i in 0..BOOK_ENTRIES{
+        if [-689592004,2101158888,1599634104].contains(&book.positions[i]) {
+            let mut game = Game::new();
+            let (set, p1) = decode(book.positions[i]);
+            let mut table = TranspositionTable::new(23);
+            game.board_set = set;
+            game.board_p1 = p1;
+            game.moves_made = 12;
+            let mut nodes = 0;
+            let eval = search(&mut game, &mut table, &empty_book, &mut nodes);
+            println!("pos={}, eval={} engine={}", book.positions[i], book.evals[i], eval);
+        }
+    }
+}
+
+fn test_book_code_decode(){
+    let book = OpeningBook::new();
+    for i in 0..BOOK_ENTRIES {
+        let code = book.positions[i];
+        let (set, p1) = decode(code);
+        let recode = huffman_code(set, p1, false);
+        if code != recode {
+            let mut game = Game::new();
+            println!("fail");
+            game.board_set = set;
+            game.board_p1 = p1;
+            game.print();
+            println!("{code:b}");
+            println!("{recode:b}");
+        }
+    }
+    return;
+}
+
+fn test_book_lookup(){
+    let book = OpeningBook::new();
+    for i in 0..BOOK_ENTRIES {
+        let code = book.positions[i];
+        let (set, p1) = decode(code);
+        if let Some(book_lookup) = book.lookup(set, p1){
+            if book_lookup != book.evals[i] {
+                println!("book_lookup failed code={code} {book_lookup} {}", book.evals[i]);
+                panic!();
+            }
+        } else {
+            panic!("book returned None")
         }
     }
 }
