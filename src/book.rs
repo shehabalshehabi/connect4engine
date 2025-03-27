@@ -1,14 +1,14 @@
-use std::{cmp::Ordering, fs};
-use crate::game::{set_bit, get_bit};
+use std::cmp::Ordering;
+use crate::game::set_bit;
 pub const BOOK_ENTRIES: usize = 4200899;
 pub struct OpeningBook{
-    pub positions : Box<[i32; BOOK_ENTRIES]>,
-    pub evals: Box<[i8; BOOK_ENTRIES]>,
+    pub positions : Box<[i32]>,
+    pub evals: Box<[i8]>,
 }
 
 impl OpeningBook {
     pub fn new() -> Self{
-        let bytes = fs::read("./opening_book/bookDeepDist.dat").expect("");
+        let bytes = include_bytes!("../opening_book/bookDeepDist.dat");
         let positions: Vec<i32> = bytes.chunks_exact(5)
         .map(|bytes| i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
         .collect();

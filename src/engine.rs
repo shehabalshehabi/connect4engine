@@ -126,12 +126,6 @@ pub enum ValueType {
     LowerBound,
 }
 
-#[derive(Clone)]
-pub struct TranspositionTableEntry{
-    key: u64,
-    eval: Eval,
-}
-
 pub struct TranspositionTable{
     address_mask : u64,
     entries : Box<[u64]>,

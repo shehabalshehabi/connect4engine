@@ -5,8 +5,11 @@ mod book;
 use game::*;
 use engine::*;
 use book::*;
+use once_cell::sync::Lazy;
 use wasm_bindgen::prelude::*;
 
+//static mut TRANSPOSITION_TABLE: Lazy<TranspositionTable> = Lazy::new(|| {TranspositionTable::new(23)});
+//static mut OPENING_BOOK: Lazy<OpeningBook> = Lazy::new(|| OpeningBook::new());
 
 #[wasm_bindgen]
 extern "C" {
@@ -18,11 +21,40 @@ pub fn greet(name: &str) {
     alert(&format!("Hello, {}!", name));
 }
 
+#[wasm_bindgen]
+pub fn c4engine(pos: &str) -> i8{
+    let moves = pos.chars().filter_map(|c| c.to_digit(10)).map(|d| d as u8);
+    let mut table = TranspositionTable::new(20);
+    let book = OpeningBook::new();
+    let mut game = Game::new();
+    for col_num in moves{
+        if let (false, _) = game.make_move(col_num){
+            return i8::MIN;
+        }
+    }
+    let mut nodes = 0;
+
+    search(&mut game, &mut table, &book, &mut nodes)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use std::{thread::sleep, time::{Duration, Instant}};
-    use tqdm::tqdm; //Adds a noticable overhead but is satisfying to look at
+    println!("{:?}", ZOBRIST_TABLE);
+    return;
 
+    use std::{thread::sleep, time::{Duration, Instant}};
+
+    let mut game = Game::new();
+    let mut table = TranspositionTable::new(23);
+    let book = OpeningBook::new();
+    let mut nodes = 0;
+    
+    let start = Instant::now();
+    let eval = search(&mut game, &mut table, &book, &mut nodes);
+    let time_taken = start.elapsed();
+    println!("Eval: {}", eval);
+    println!("Time Taken: {:#?}", time_taken);
+    return;
 
     /*let mut game = Game::new();
     game.make_move(3);
@@ -45,7 +77,7 @@ fn main() {
     let mut nodes = 0;
 
     let start = Instant::now();
-    for i in tqdm(0..1000){
+    for i in 0..1000{
         let mut game = Game::new();
         setup_game(&mut game, &test_moves[i]);
         //let eval = negamax_wrapper(&mut game, 14, &mut transposition_table);
