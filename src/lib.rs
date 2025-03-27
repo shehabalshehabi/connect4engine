@@ -8,8 +8,8 @@ use book::*;
 use once_cell::sync::Lazy;
 use wasm_bindgen::prelude::*;
 
-//static mut TRANSPOSITION_TABLE: Lazy<TranspositionTable> = Lazy::new(|| {TranspositionTable::new(23)});
-//static mut OPENING_BOOK: Lazy<OpeningBook> = Lazy::new(|| OpeningBook::new());
+static mut TRANSPOSITION_TABLE: Lazy<TranspositionTable> = Lazy::new(|| {TranspositionTable::new(23)});
+static mut OPENING_BOOK: Lazy<OpeningBook> = Lazy::new(|| OpeningBook::new());
 
 #[wasm_bindgen]
 extern "C" {
@@ -24,17 +24,22 @@ pub fn greet(name: &str) {
 #[wasm_bindgen]
 pub fn c4engine(pos: &str) -> i8{
     let moves = pos.chars().filter_map(|c| c.to_digit(10)).map(|d| d as u8);
-    let mut table = TranspositionTable::new(20);
-    let book = OpeningBook::new();
+    //let mut table = TranspositionTable::new(20);
+    //let book = OpeningBook::new();
     let mut game = Game::new();
     for col_num in moves{
+        if col_num>=COLS{
+            return i8::MIN;
+        }
         if let (false, _) = game.make_move(col_num){
             return i8::MIN;
         }
     }
     let mut nodes = 0;
 
-    search(&mut game, &mut table, &book, &mut nodes)
+    unsafe {
+        search(&mut game, &mut TRANSPOSITION_TABLE, &OPENING_BOOK, &mut nodes)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
