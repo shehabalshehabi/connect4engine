@@ -178,12 +178,12 @@ impl TranspositionTable {
     }
 }
 
-pub fn negamax_wrapper(game:&mut Game, transposition_table: &mut TranspositionTable)->i8{
-    //negamax(game, -i8::MAX, i8::MAX, transposition_table) // Need to be able to negate values -128 is i8::MIN and larger than i8::MAX
-    0
-}
-
 pub fn search(game: &mut Game, transposition_table: &mut TranspositionTable, book: &OpeningBook, nodes: &mut u64)->i8{
+    // Return early if game is already over
+    if game.game_status == GameStatus::Player1Win || game.game_status == GameStatus::Player2Win {
+        return -22 + (game.moves_made+1)/2
+    }
+
     let mut maximum_possible = 21 - game.moves_made/2;
     let mut minimum_possible = -21 + (game.moves_made+1)/2;
 
